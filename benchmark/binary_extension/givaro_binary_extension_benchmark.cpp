@@ -152,6 +152,8 @@ static void BM_Givaro_GF2X_Small_Division(benchmark::State &state) {
     idx++;
   }
 
+  MemoryUsage mem_end = GetMemoryUsage();
+  state.counters["MemoryPeak_KB"] = mem_end.peak_rss_kb;
   state.counters["FieldOrder"] = field.cardinality();
 }
 
