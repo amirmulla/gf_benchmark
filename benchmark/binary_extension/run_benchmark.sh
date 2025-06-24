@@ -88,22 +88,20 @@ build_benchmark() {
     echo -e "${YELLOW}Compiling with clang++...${NC}"
 
     /usr/bin/clang++ \
-        -fcolor-diagnostics \
-        -fansi-escape-codes \
-        -std=c++17 \
+        -std=c++23 \
         -O3 \
         -DNDEBUG \
         -I/opt/homebrew/include \
         -I/Users/amirmulla/Desktop/gf_benchmark \
         -L/opt/homebrew/lib \
-        givaro_binary_extension_benchmark.cpp \
-        -o givaro_binary_extension_benchmark \
+        binary_extension_benchmark.cpp \
+        -o binary_extension_benchmark \
         -lgivaro \
         -lgmp \
         -lbenchmark \
         -pthread
 
-    if [ ! -f "givaro_binary_extension_benchmark" ]; then
+    if [ ! -f "binary_extension_benchmark" ]; then
         echo -e "${RED}Error: Failed to build benchmark executable${NC}"
         exit 1
     fi
@@ -148,8 +146,8 @@ run_benchmark() {
     fi
 
     # Run the benchmark
-    echo "Command: ./givaro_binary_extension_benchmark $benchmark_args"
-    ./givaro_binary_extension_benchmark $benchmark_args
+    echo "Command: ./binary_extension_benchmark $benchmark_args"
+    ./binary_extension_benchmark $benchmark_args
 
     if [ $? -eq 0 ]; then
         echo -e "${GREEN}✓ $test_name completed successfully${NC}"
