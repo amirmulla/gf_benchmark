@@ -17,6 +17,7 @@
                 "-L/opt/homebrew/lib",
                 "-lgivaro",
                 "-lgmp",
+                "-lntl",
                 "-lgtest",
                 "-lgtest_main",
                 "-lbenchmark"

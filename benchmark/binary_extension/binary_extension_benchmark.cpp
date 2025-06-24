@@ -1,6 +1,6 @@
 /**
  * @file binary_extension_benchmark.cpp
- * @brief Performance comparison between Givaro GFq and xgalois GF2XZECH
+ * @brief Performance comparison between Givaro GFq and xgalois GF2X
  * Benchmarks GF(2^m) operations for both implementations
  */
 
@@ -15,8 +15,8 @@
 
 #include <givaro/gfq.h>
 #include <xgalois/field/gf_binary.hpp>
-
-using namespace Givaro;
+#include <NTL/GF2X.h>
+#include <NTL/GF2E.h>
 
 //------------------------------------------------------------------------------
 // Memory Usage Utilities
@@ -66,19 +66,22 @@ const std::vector<uint8_t> FIELD_DEGREES = {4, 8, 12, 16, 20};
 //------------------------------------------------------------------------------
 
 template <typename ElementType>
-std::vector<typename GFq<ElementType>::Element>
-GenerateRandomGivaroElements(const GFq<ElementType> &field, size_t count,
+std::vector<typename Givaro::GFq<ElementType>::Element>
+GenerateRandomGivaroElements(const Givaro::GFq<ElementType> &field, size_t count,
                             uint32_t seed = 42) {
   std::mt19937 gen(seed);
   std::uniform_int_distribution<uint32_t> dis(
-      1, static_cast<uint32_t>(field.cardinality() - 1));
+      1, static_cast<uint32_t>(field.cardinality() - 1)); // Start from 1 to avoid zero
 
-  std::vector<typename GFq<ElementType>::Element> elements;
+  std::vector<typename Givaro::GFq<ElementType>::Element> elements;
   elements.reserve(count);
 
   for (size_t i = 0; i < count; ++i) {
-    typename GFq<ElementType>::Element elem;
-    field.init(elem, dis(gen));
+    typename Givaro::GFq<ElementType>::Element elem;
+    uint32_t val = dis(gen);
+    // Ensure we never get zero
+    if (val == 0) val = 1;
+    field.init(elem, val);
     elements.push_back(elem);
   }
 
@@ -89,13 +92,51 @@ std::vector<uint32_t> GenerateRandomXgaloisElements(const xg::GF2XZECH &field,
                                                    size_t count,
                                                    uint32_t seed = 42) {
   std::mt19937 gen(seed);
-  std::uniform_int_distribution<uint32_t> dis(0, field.Order() - 2); // Multiplicative group size = Order - 1
+  std::uniform_int_distribution<uint32_t> dis(1, field.Order() - 1); // Start from 1 to avoid zero
 
   std::vector<uint32_t> elements;
   elements.reserve(count);
 
   for (size_t i = 0; i < count; ++i) {
-    elements.push_back(dis(gen));
+    uint32_t val = dis(gen);
+    // Ensure we never get zero (additional safety check)
+    if (val == 0) val = 1;
+    elements.push_back(val);
+  }
+
+  return elements;
+}
+
+std::vector<NTL::GF2E> GenerateRandomNTLElements(size_t count, uint32_t seed = 42) {
+  std::mt19937 gen(seed);
+  std::uniform_int_distribution<uint32_t> dis(1, (1 << NTL::GF2E::degree()) - 1); // Start from 1 to avoid zero
+
+  std::vector<NTL::GF2E> elements;
+  elements.reserve(count);
+
+  for (size_t i = 0; i < count; ++i) {
+    NTL::GF2X poly;
+    uint32_t val = dis(gen);
+    // Ensure we never get zero polynomial
+    if (val == 0) val = 1;
+
+    // Convert val to polynomial representation
+    for (int j = 0; j < NTL::GF2E::degree(); ++j) {
+      if ((val >> j) & 1) {
+        NTL::SetCoeff(poly, j, 1);
+      }
+    }
+
+    NTL::GF2E elem;
+    NTL::conv(elem, poly);
+
+    // Double-check that we didn't create zero element
+    if (NTL::IsZero(elem)) {
+      NTL::SetCoeff(poly, 0, 1); // Set constant term to ensure non-zero
+      NTL::conv(elem, poly);
+    }
+
+    elements.push_back(elem);
   }
 
   return elements;
@@ -113,19 +154,87 @@ std::string GetIrreduciblePoly(uint8_t m) {
   }
 }
 
+// Helper function to get NTL irreducible polynomial for each field size
+NTL::GF2X GetNTLIrreduciblePoly(uint8_t m) {
+  NTL::GF2X poly;
+  switch (m) {
+    case 4:
+      // x^4 + x + 1
+      NTL::SetCoeff(poly, 4); NTL::SetCoeff(poly, 1); NTL::SetCoeff(poly, 0);
+      break;
+    case 8:
+      // x^8 + x^4 + x^3 + x^2 + 1
+      NTL::SetCoeff(poly, 8); NTL::SetCoeff(poly, 4); NTL::SetCoeff(poly, 3); NTL::SetCoeff(poly, 2); NTL::SetCoeff(poly, 0);
+      break;
+    case 12:
+      // x^12 + x^6 + x^4 + x + 1
+      NTL::SetCoeff(poly, 12); NTL::SetCoeff(poly, 6); NTL::SetCoeff(poly, 4); NTL::SetCoeff(poly, 1); NTL::SetCoeff(poly, 0);
+      break;
+    case 16:
+      // x^16 + x^12 + x^3 + x + 1
+      NTL::SetCoeff(poly, 16); NTL::SetCoeff(poly, 12); NTL::SetCoeff(poly, 3); NTL::SetCoeff(poly, 1); NTL::SetCoeff(poly, 0);
+      break;
+    case 20:
+      // x^20 + x^3 + 1
+      NTL::SetCoeff(poly, 20); NTL::SetCoeff(poly, 3); NTL::SetCoeff(poly, 0);
+      break;
+    default:
+      // Default irreducible polynomial
+      NTL::SetCoeff(poly, m); NTL::SetCoeff(poly, 1); NTL::SetCoeff(poly, 0);
+      break;
+  }
+  return poly;
+}
+
+// Helper function to get Givaro polynomial representation
+std::vector<int> GetGivaroIrreduciblePoly(uint8_t m) {
+  std::vector<int> poly;
+  switch (m) {
+    case 4:
+      // x^4 + x + 1
+      poly = {1, 1, 0, 0, 1}; // coefficients from x^0 to x^4
+      break;
+    case 8:
+      // x^8 + x^4 + x^3 + x^2 + 1
+      poly = {1, 0, 1, 1, 1, 0, 0, 0, 1}; // coefficients from x^0 to x^8
+      break;
+    case 12:
+      // x^12 + x^6 + x^4 + x + 1
+      poly = {1, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1}; // coefficients from x^0 to x^12
+      break;
+    case 16:
+      // x^16 + x^12 + x^3 + x + 1
+      poly = {1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1}; // coefficients from x^0 to x^16
+      break;
+    case 20:
+      // x^20 + x^3 + 1
+      poly = {1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}; // coefficients from x^0 to x^20
+      break;
+    default:
+      // Default: x^m + x + 1
+      poly.resize(m + 1, 0);
+      poly[0] = 1; // constant term
+      poly[1] = 1; // x term
+      poly[m] = 1; // x^m term
+      break;
+  }
+  return poly;
+}
+
 //------------------------------------------------------------------------------
 // Givaro GFq Benchmarks
 //------------------------------------------------------------------------------
 
 static void BM_Givaro_Addition(benchmark::State &state) {
   uint8_t m = static_cast<uint8_t>(state.range(0));
-  GFq<int64_t> field(2, m);
+  std::vector<int> poly = GetGivaroIrreduciblePoly(m);
+  Givaro::GFq<int64_t> field(2, m, poly);
 
-  auto elements = GenerateRandomGivaroElements(field, 1000);
+  auto elements = GenerateRandomGivaroElements(field, 10000);
   size_t idx = 0;
 
   for (auto _ : state) {
-    GFq<int64_t>::Element result;
+    Givaro::GFq<int64_t>::Element result;
     field.add(result, elements[idx % elements.size()],
               elements[(idx + 1) % elements.size()]);
     benchmark::DoNotOptimize(result);
@@ -139,13 +248,14 @@ static void BM_Givaro_Addition(benchmark::State &state) {
 
 static void BM_Givaro_Multiplication(benchmark::State &state) {
   uint8_t m = static_cast<uint8_t>(state.range(0));
-  GFq<int64_t> field(2, m);
+  std::vector<int> poly = GetGivaroIrreduciblePoly(m);
+  Givaro::GFq<int64_t> field(2, m, poly);
 
-  auto elements = GenerateRandomGivaroElements(field, 1000);
+  auto elements = GenerateRandomGivaroElements(field, 10000);
   size_t idx = 0;
 
   for (auto _ : state) {
-    GFq<int64_t>::Element result;
+    Givaro::GFq<int64_t>::Element result;
     field.mul(result, elements[idx % elements.size()],
               elements[(idx + 1) % elements.size()]);
     benchmark::DoNotOptimize(result);
@@ -159,15 +269,20 @@ static void BM_Givaro_Multiplication(benchmark::State &state) {
 
 static void BM_Givaro_Division(benchmark::State &state) {
   uint8_t m = static_cast<uint8_t>(state.range(0));
-  GFq<int64_t> field(2, m);
+  std::vector<int> poly = GetGivaroIrreduciblePoly(m);
+  Givaro::GFq<int64_t> field(2, m, poly);
 
-  auto elements = GenerateRandomGivaroElements(field, 1000);
+  auto elements = GenerateRandomGivaroElements(field, 10000);
   size_t idx = 0;
 
   for (auto _ : state) {
-    GFq<int64_t>::Element result;
-    field.div(result, elements[idx % elements.size()],
-              elements[(idx + 1) % elements.size()]);
+    Givaro::GFq<int64_t>::Element result;
+    auto divisor = elements[(idx + 1) % elements.size()];
+    // Additional safety check to ensure divisor is not zero
+    if (field.isZero(divisor)) {
+      field.init(divisor, 1); // Set to 1 if somehow zero
+    }
+    field.div(result, elements[idx % elements.size()], divisor);
     benchmark::DoNotOptimize(result);
     idx++;
   }
@@ -179,14 +294,20 @@ static void BM_Givaro_Division(benchmark::State &state) {
 
 static void BM_Givaro_Inversion(benchmark::State &state) {
   uint8_t m = static_cast<uint8_t>(state.range(0));
-  GFq<int64_t> field(2, m);
+  std::vector<int> poly = GetGivaroIrreduciblePoly(m);
+  Givaro::GFq<int64_t> field(2, m, poly);
 
-  auto elements = GenerateRandomGivaroElements(field, 1000);
+  auto elements = GenerateRandomGivaroElements(field, 10000);
   size_t idx = 0;
 
   for (auto _ : state) {
-    GFq<int64_t>::Element result;
-    field.inv(result, elements[idx % elements.size()]);
+    Givaro::GFq<int64_t>::Element result;
+    auto elem = elements[idx % elements.size()];
+    // Additional safety check to ensure element is not zero
+    if (field.isZero(elem)) {
+      field.init(elem, 1); // Set to 1 if somehow zero
+    }
+    field.inv(result, elem);
     benchmark::DoNotOptimize(result);
     idx++;
   }
@@ -204,7 +325,7 @@ static void BM_Xgalois_Addition(benchmark::State &state) {
   uint8_t m = static_cast<uint8_t>(state.range(0));
   xg::GF2XZECH field(m, "log", GetIrreduciblePoly(m));
 
-  auto elements = GenerateRandomXgaloisElements(field, 1000);
+  auto elements = GenerateRandomXgaloisElements(field, 10000);
   size_t idx = 0;
 
   for (auto _ : state) {
@@ -223,7 +344,7 @@ static void BM_Xgalois_Multiplication(benchmark::State &state) {
   uint8_t m = static_cast<uint8_t>(state.range(0));
   xg::GF2XZECH field(m, "log", GetIrreduciblePoly(m));
 
-  auto elements = GenerateRandomXgaloisElements(field, 1000);
+  auto elements = GenerateRandomXgaloisElements(field, 10000);
   size_t idx = 0;
 
   for (auto _ : state) {
@@ -242,12 +363,16 @@ static void BM_Xgalois_Division(benchmark::State &state) {
   uint8_t m = static_cast<uint8_t>(state.range(0));
   xg::GF2XZECH field(m, "log", GetIrreduciblePoly(m));
 
-  auto elements = GenerateRandomXgaloisElements(field, 1000);
+  auto elements = GenerateRandomXgaloisElements(field, 10000);
   size_t idx = 0;
 
   for (auto _ : state) {
-    uint32_t result = field.Div(elements[idx % elements.size()],
-                               elements[(idx + 1) % elements.size()]);
+    uint32_t divisor = elements[(idx + 1) % elements.size()];
+    // Additional safety check to ensure divisor is not zero
+    if (divisor == 0) {
+      divisor = 1; // Set to 1 if somehow zero
+    }
+    uint32_t result = field.Div(elements[idx % elements.size()], divisor);
     benchmark::DoNotOptimize(result);
     idx++;
   }
@@ -261,11 +386,16 @@ static void BM_Xgalois_Inversion(benchmark::State &state) {
   uint8_t m = static_cast<uint8_t>(state.range(0));
   xg::GF2XZECH field(m, "log", GetIrreduciblePoly(m));
 
-  auto elements = GenerateRandomXgaloisElements(field, 1000);
+  auto elements = GenerateRandomXgaloisElements(field, 10000);
   size_t idx = 0;
 
   for (auto _ : state) {
-    uint32_t result = field.Inv(elements[idx % elements.size()]);
+    uint32_t elem = elements[idx % elements.size()];
+    // Additional safety check to ensure element is not zero
+    if (elem == 0) {
+      elem = 1; // Set to 1 if somehow zero
+    }
+    uint32_t result = field.Inv(elem);
     benchmark::DoNotOptimize(result);
     idx++;
   }
@@ -273,6 +403,96 @@ static void BM_Xgalois_Inversion(benchmark::State &state) {
   MemoryUsage mem_end = GetMemoryUsage();
   state.counters["MemoryPeak_KB"] = mem_end.peak_rss_kb;
   state.counters["FieldOrder"] = field.Order();
+}
+
+//------------------------------------------------------------------------------
+// NTL GF2E Benchmarks
+//------------------------------------------------------------------------------
+
+static void BM_NTL_Addition(benchmark::State &state) {
+  uint8_t m = static_cast<uint8_t>(state.range(0));
+  NTL::GF2X poly = GetNTLIrreduciblePoly(m);
+  NTL::GF2E::init(poly);
+
+  auto elements = GenerateRandomNTLElements(10000);
+  size_t idx = 0;
+
+  for (auto _ : state) {
+    NTL::GF2E result = elements[idx % elements.size()] + elements[(idx + 1) % elements.size()];
+    benchmark::DoNotOptimize(result);
+    idx++;
+  }
+
+  MemoryUsage mem_end = GetMemoryUsage();
+  state.counters["MemoryPeak_KB"] = mem_end.peak_rss_kb;
+  state.counters["FieldOrder"] = 1UL << m;
+}
+
+static void BM_NTL_Multiplication(benchmark::State &state) {
+  uint8_t m = static_cast<uint8_t>(state.range(0));
+  NTL::GF2X poly = GetNTLIrreduciblePoly(m);
+  NTL::GF2E::init(poly);
+
+  auto elements = GenerateRandomNTLElements(10000);
+  size_t idx = 0;
+
+  for (auto _ : state) {
+    NTL::GF2E result = elements[idx % elements.size()] * elements[(idx + 1) % elements.size()];
+    benchmark::DoNotOptimize(result);
+    idx++;
+  }
+
+  MemoryUsage mem_end = GetMemoryUsage();
+  state.counters["MemoryPeak_KB"] = mem_end.peak_rss_kb;
+  state.counters["FieldOrder"] = 1UL << m;
+}
+
+static void BM_NTL_Division(benchmark::State &state) {
+  uint8_t m = static_cast<uint8_t>(state.range(0));
+  NTL::GF2X poly = GetNTLIrreduciblePoly(m);
+  NTL::GF2E::init(poly);
+
+  auto elements = GenerateRandomNTLElements(10000);
+  size_t idx = 0;
+
+  for (auto _ : state) {
+    NTL::GF2E divisor = elements[(idx + 1) % elements.size()];
+    // Additional safety check to ensure divisor is not zero
+    if (NTL::IsZero(divisor)) {
+      divisor = NTL::to_GF2E(1); // Set to 1 if somehow zero
+    }
+    NTL::GF2E result = elements[idx % elements.size()] / divisor;
+    benchmark::DoNotOptimize(result);
+    idx++;
+  }
+
+  MemoryUsage mem_end = GetMemoryUsage();
+  state.counters["MemoryPeak_KB"] = mem_end.peak_rss_kb;
+  state.counters["FieldOrder"] = 1UL << m;
+}
+
+static void BM_NTL_Inversion(benchmark::State &state) {
+  uint8_t m = static_cast<uint8_t>(state.range(0));
+  NTL::GF2X poly = GetNTLIrreduciblePoly(m);
+  NTL::GF2E::init(poly);
+
+  auto elements = GenerateRandomNTLElements(10000);
+  size_t idx = 0;
+
+  for (auto _ : state) {
+    NTL::GF2E elem = elements[idx % elements.size()];
+    // Additional safety check to ensure element is not zero
+    if (NTL::IsZero(elem)) {
+      elem = NTL::to_GF2E(1); // Set to 1 if somehow zero
+    }
+    NTL::GF2E result = NTL::inv(elem);
+    benchmark::DoNotOptimize(result);
+    idx++;
+  }
+
+  MemoryUsage mem_end = GetMemoryUsage();
+  state.counters["MemoryPeak_KB"] = mem_end.peak_rss_kb;
+  state.counters["FieldOrder"] = 1UL << m;
 }
 
 //------------------------------------------------------------------------------
@@ -309,6 +529,22 @@ BENCHMARK(BM_Xgalois_Division)
     ->Unit(benchmark::kNanosecond);
 
 BENCHMARK(BM_Xgalois_Inversion)
+    ->Arg(4)->Arg(8)->Arg(12)->Arg(16)->Arg(20)
+    ->Unit(benchmark::kNanosecond);
+
+BENCHMARK(BM_NTL_Addition)
+    ->Arg(4)->Arg(8)->Arg(12)->Arg(16)->Arg(20)
+    ->Unit(benchmark::kNanosecond);
+
+BENCHMARK(BM_NTL_Multiplication)
+    ->Arg(4)->Arg(8)->Arg(12)->Arg(16)->Arg(20)
+    ->Unit(benchmark::kNanosecond);
+
+BENCHMARK(BM_NTL_Division)
+    ->Arg(4)->Arg(8)->Arg(12)->Arg(16)->Arg(20)
+    ->Unit(benchmark::kNanosecond);
+
+BENCHMARK(BM_NTL_Inversion)
     ->Arg(4)->Arg(8)->Arg(12)->Arg(16)->Arg(20)
     ->Unit(benchmark::kNanosecond);
 

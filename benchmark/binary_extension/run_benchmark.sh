@@ -99,6 +99,7 @@ build_benchmark() {
         -o binary_extension_benchmark \
         -lgivaro \
         -lgmp \
+        -lntl \
         -lbenchmark \
         -pthread
 

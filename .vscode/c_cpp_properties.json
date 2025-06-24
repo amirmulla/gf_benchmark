@@ -28,6 +28,7 @@
                 "-I/${workspaceFolder}",
                 "-L/opt/homebrew/lib",
                 "-lgivaro",
+                "-lntl",
                 "-lgmp",
                 "-lgtest",
                 "-lgtest_main",
