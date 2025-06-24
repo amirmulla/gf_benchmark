@@ -1,8 +1,7 @@
 /**
- * @file givaro_binary_extension_benchmark.cpp
- * @brief Comprehensive benchmark for Givaro's binary extension field
- * implementation Benchmarks GF(2^m) operations using Givaro's GFq
- * implementation
+ * @file binary_extension_benchmark.cpp
+ * @brief Performance comparison between Givaro GFq and xgalois GF2XZECH
+ * Benchmarks GF(2^m) operations for both implementations
  */
 
 #include <benchmark/benchmark.h>
@@ -15,6 +14,7 @@
 #include <vector>
 
 #include <givaro/gfq.h>
+#include <xgalois/field/gf_binary.hpp>
 
 using namespace Givaro;
 
@@ -58,15 +58,8 @@ MemoryUsage GetMemoryUsage() {
 // Field Sizes for Testing
 //------------------------------------------------------------------------------
 
-// Small fields - Common small extension degrees
-const std::vector<uint8_t> SMALL_FIELD_DEGREES = {2, 3, 4, 5, 6, 7, 8};
-
-// Medium fields - Practical sizes for applications
-const std::vector<uint8_t> MEDIUM_FIELD_DEGREES = {9,  10, 11, 12,
-                                                   13, 14, 15, 16};
-
-// Large fields - Note: Some implementations may be memory intensive
-const std::vector<uint8_t> LARGE_FIELD_DEGREES = {17, 18, 19, 20};
+// Field degrees to test
+const std::vector<uint8_t> FIELD_DEGREES = {4, 8, 12, 16, 20};
 
 //------------------------------------------------------------------------------
 // Helper Functions
@@ -74,9 +67,8 @@ const std::vector<uint8_t> LARGE_FIELD_DEGREES = {17, 18, 19, 20};
 
 template <typename ElementType>
 std::vector<typename GFq<ElementType>::Element>
-GenerateRandomElements(const GFq<ElementType> &field, size_t count,
-                       uint32_t seed = 42) {
-
+GenerateRandomGivaroElements(const GFq<ElementType> &field, size_t count,
+                            uint32_t seed = 42) {
   std::mt19937 gen(seed);
   std::uniform_int_distribution<uint32_t> dis(
       1, static_cast<uint32_t>(field.cardinality() - 1));
@@ -93,15 +85,43 @@ GenerateRandomElements(const GFq<ElementType> &field, size_t count,
   return elements;
 }
 
+std::vector<uint32_t> GenerateRandomXgaloisElements(const xg::GF2XZECH &field,
+                                                   size_t count,
+                                                   uint32_t seed = 42) {
+  std::mt19937 gen(seed);
+  std::uniform_int_distribution<uint32_t> dis(0, field.Order() - 2); // Multiplicative group size = Order - 1
+
+  std::vector<uint32_t> elements;
+  elements.reserve(count);
+
+  for (size_t i = 0; i < count; ++i) {
+    elements.push_back(dis(gen));
+  }
+
+  return elements;
+}
+
+// Helper function to get irreducible polynomial for each field size
+std::string GetIrreduciblePoly(uint8_t m) {
+  switch (m) {
+    case 4: return "x^4 + x + 1";
+    case 8: return "x^8 + x^4 + x^3 + x^2 + 1";
+    case 12: return "x^12 + x^6 + x^4 + x + 1";
+    case 16: return "x^16 + x^12 + x^3 + x + 1";
+    case 20: return "x^20 + x^3 + 1";
+    default: return ""; // Let the library choose
+  }
+}
+
 //------------------------------------------------------------------------------
-// Small Field Benchmarks (GF(2^m) where m = 2-8)
+// Givaro GFq Benchmarks
 //------------------------------------------------------------------------------
 
-static void BM_Givaro_GF2X_Small_Addition(benchmark::State &state) {
+static void BM_Givaro_Addition(benchmark::State &state) {
   uint8_t m = static_cast<uint8_t>(state.range(0));
   GFq<int64_t> field(2, m);
 
-  auto elements = GenerateRandomElements(field, 1000);
+  auto elements = GenerateRandomGivaroElements(field, 1000);
   size_t idx = 0;
 
   for (auto _ : state) {
@@ -117,11 +137,11 @@ static void BM_Givaro_GF2X_Small_Addition(benchmark::State &state) {
   state.counters["FieldOrder"] = field.cardinality();
 }
 
-static void BM_Givaro_GF2X_Small_Multiplication(benchmark::State &state) {
+static void BM_Givaro_Multiplication(benchmark::State &state) {
   uint8_t m = static_cast<uint8_t>(state.range(0));
   GFq<int64_t> field(2, m);
 
-  auto elements = GenerateRandomElements(field, 1000);
+  auto elements = GenerateRandomGivaroElements(field, 1000);
   size_t idx = 0;
 
   for (auto _ : state) {
@@ -137,11 +157,11 @@ static void BM_Givaro_GF2X_Small_Multiplication(benchmark::State &state) {
   state.counters["FieldOrder"] = field.cardinality();
 }
 
-static void BM_Givaro_GF2X_Small_Division(benchmark::State &state) {
+static void BM_Givaro_Division(benchmark::State &state) {
   uint8_t m = static_cast<uint8_t>(state.range(0));
   GFq<int64_t> field(2, m);
 
-  auto elements = GenerateRandomElements(field, 1000);
+  auto elements = GenerateRandomGivaroElements(field, 1000);
   size_t idx = 0;
 
   for (auto _ : state) {
@@ -157,11 +177,11 @@ static void BM_Givaro_GF2X_Small_Division(benchmark::State &state) {
   state.counters["FieldOrder"] = field.cardinality();
 }
 
-static void BM_Givaro_GF2X_Small_Inversion(benchmark::State &state) {
+static void BM_Givaro_Inversion(benchmark::State &state) {
   uint8_t m = static_cast<uint8_t>(state.range(0));
   GFq<int64_t> field(2, m);
 
-  auto elements = GenerateRandomElements(field, 1000);
+  auto elements = GenerateRandomGivaroElements(field, 1000);
   size_t idx = 0;
 
   for (auto _ : state) {
@@ -177,270 +197,119 @@ static void BM_Givaro_GF2X_Small_Inversion(benchmark::State &state) {
 }
 
 //------------------------------------------------------------------------------
-// Medium Field Benchmarks (GF(2^m) where m = 9-16)
+// xgalois GF2XZECH Benchmarks
 //------------------------------------------------------------------------------
 
-static void BM_Givaro_GF2X_Medium_Addition(benchmark::State &state) {
+static void BM_Xgalois_Addition(benchmark::State &state) {
   uint8_t m = static_cast<uint8_t>(state.range(0));
-  GFq<int64_t> field(2, m);
+  xg::GF2XZECH field(m, "log", GetIrreduciblePoly(m));
 
-  auto elements = GenerateRandomElements(field, 1000);
+  auto elements = GenerateRandomXgaloisElements(field, 1000);
   size_t idx = 0;
 
   for (auto _ : state) {
-    GFq<int64_t>::Element result;
-    field.add(result, elements[idx % elements.size()],
-              elements[(idx + 1) % elements.size()]);
+    uint32_t result = field.Add(elements[idx % elements.size()],
+                               elements[(idx + 1) % elements.size()]);
     benchmark::DoNotOptimize(result);
     idx++;
   }
 
   MemoryUsage mem_end = GetMemoryUsage();
   state.counters["MemoryPeak_KB"] = mem_end.peak_rss_kb;
-  state.counters["FieldOrder"] = field.cardinality();
+  state.counters["FieldOrder"] = field.Order();
 }
 
-static void BM_Givaro_GF2X_Medium_Multiplication(benchmark::State &state) {
+static void BM_Xgalois_Multiplication(benchmark::State &state) {
   uint8_t m = static_cast<uint8_t>(state.range(0));
-  GFq<int64_t> field(2, m);
+  xg::GF2XZECH field(m, "log", GetIrreduciblePoly(m));
 
-  auto elements = GenerateRandomElements(field, 1000);
+  auto elements = GenerateRandomXgaloisElements(field, 1000);
   size_t idx = 0;
 
   for (auto _ : state) {
-    GFq<int64_t>::Element result;
-    field.mul(result, elements[idx % elements.size()],
-              elements[(idx + 1) % elements.size()]);
+    uint32_t result = field.Mul(elements[idx % elements.size()],
+                               elements[(idx + 1) % elements.size()]);
     benchmark::DoNotOptimize(result);
     idx++;
   }
 
   MemoryUsage mem_end = GetMemoryUsage();
   state.counters["MemoryPeak_KB"] = mem_end.peak_rss_kb;
-  state.counters["FieldOrder"] = field.cardinality();
+  state.counters["FieldOrder"] = field.Order();
 }
 
-static void BM_Givaro_GF2X_Medium_Division(benchmark::State &state) {
+static void BM_Xgalois_Division(benchmark::State &state) {
   uint8_t m = static_cast<uint8_t>(state.range(0));
-  GFq<int64_t> field(2, m);
+  xg::GF2XZECH field(m, "log", GetIrreduciblePoly(m));
 
-  auto elements = GenerateRandomElements(field, 1000);
+  auto elements = GenerateRandomXgaloisElements(field, 1000);
   size_t idx = 0;
 
   for (auto _ : state) {
-    GFq<int64_t>::Element result;
-    field.div(result, elements[idx % elements.size()],
-              elements[(idx + 1) % elements.size()]);
+    uint32_t result = field.Div(elements[idx % elements.size()],
+                               elements[(idx + 1) % elements.size()]);
     benchmark::DoNotOptimize(result);
     idx++;
   }
 
   MemoryUsage mem_end = GetMemoryUsage();
   state.counters["MemoryPeak_KB"] = mem_end.peak_rss_kb;
-  state.counters["FieldOrder"] = field.cardinality();
+  state.counters["FieldOrder"] = field.Order();
 }
 
-static void BM_Givaro_GF2X_Medium_Inversion(benchmark::State &state) {
+static void BM_Xgalois_Inversion(benchmark::State &state) {
   uint8_t m = static_cast<uint8_t>(state.range(0));
-  GFq<int64_t> field(2, m);
+  xg::GF2XZECH field(m, "log", GetIrreduciblePoly(m));
 
-  auto elements = GenerateRandomElements(field, 1000);
+  auto elements = GenerateRandomXgaloisElements(field, 1000);
   size_t idx = 0;
 
   for (auto _ : state) {
-    GFq<int64_t>::Element result;
-    field.inv(result, elements[idx % elements.size()]);
+    uint32_t result = field.Inv(elements[idx % elements.size()]);
     benchmark::DoNotOptimize(result);
     idx++;
   }
 
   MemoryUsage mem_end = GetMemoryUsage();
   state.counters["MemoryPeak_KB"] = mem_end.peak_rss_kb;
-  state.counters["FieldOrder"] = field.cardinality();
-}
-
-//------------------------------------------------------------------------------
-// Large Field Benchmarks (GF(2^m) where m = 17-20)
-//------------------------------------------------------------------------------
-
-static void BM_Givaro_GF2X_Large_Addition(benchmark::State &state) {
-  uint8_t m = static_cast<uint8_t>(state.range(0));
-  GFq<int64_t> field(2, m);
-
-  auto elements =
-      GenerateRandomElements(field, 500); // Smaller count for large fields
-  size_t idx = 0;
-
-  for (auto _ : state) {
-    GFq<int64_t>::Element result;
-    field.add(result, elements[idx % elements.size()],
-              elements[(idx + 1) % elements.size()]);
-    benchmark::DoNotOptimize(result);
-    idx++;
-  }
-
-  MemoryUsage mem_end = GetMemoryUsage();
-  state.counters["MemoryPeak_KB"] = mem_end.peak_rss_kb;
-  state.counters["FieldOrder"] = field.cardinality();
-}
-
-static void BM_Givaro_GF2X_Large_Multiplication(benchmark::State &state) {
-  uint8_t m = static_cast<uint8_t>(state.range(0));
-  GFq<int64_t> field(2, m);
-
-  auto elements = GenerateRandomElements(field, 500);
-  size_t idx = 0;
-
-  for (auto _ : state) {
-    GFq<int64_t>::Element result;
-    field.mul(result, elements[idx % elements.size()],
-              elements[(idx + 1) % elements.size()]);
-    benchmark::DoNotOptimize(result);
-    idx++;
-  }
-
-  MemoryUsage mem_end = GetMemoryUsage();
-  state.counters["MemoryPeak_KB"] = mem_end.peak_rss_kb;
-  state.counters["FieldOrder"] = field.cardinality();
-}
-
-static void BM_Givaro_GF2X_Large_Division(benchmark::State &state) {
-  uint8_t m = static_cast<uint8_t>(state.range(0));
-  GFq<int64_t> field(2, m);
-
-  auto elements = GenerateRandomElements(field, 500);
-  size_t idx = 0;
-
-  for (auto _ : state) {
-    GFq<int64_t>::Element result;
-    field.div(result, elements[idx % elements.size()],
-              elements[(idx + 1) % elements.size()]);
-    benchmark::DoNotOptimize(result);
-    idx++;
-  }
-
-  MemoryUsage mem_end = GetMemoryUsage();
-  state.counters["MemoryPeak_KB"] = mem_end.peak_rss_kb;
-  state.counters["FieldOrder"] = field.cardinality();
-}
-
-static void BM_Givaro_GF2X_Large_Inversion(benchmark::State &state) {
-  uint8_t m = static_cast<uint8_t>(state.range(0));
-  GFq<int64_t> field(2, m);
-
-  auto elements = GenerateRandomElements(field, 500);
-  size_t idx = 0;
-
-  for (auto _ : state) {
-    GFq<int64_t>::Element result;
-    field.inv(result, elements[idx % elements.size()]);
-    benchmark::DoNotOptimize(result);
-    idx++;
-  }
-
-  MemoryUsage mem_end = GetMemoryUsage();
-  state.counters["MemoryPeak_KB"] = mem_end.peak_rss_kb;
-  state.counters["FieldOrder"] = field.cardinality();
-}
-
-//------------------------------------------------------------------------------
-// Field Construction Benchmarks
-//------------------------------------------------------------------------------
-
-static void BM_Givaro_GF2X_Field_Construction_Small(benchmark::State &state) {
-  uint8_t m = static_cast<uint8_t>(state.range(0));
-
-  for (auto _ : state) {
-    GFq<int64_t> field(2, m);
-    benchmark::DoNotOptimize(field);
-  }
-
-  MemoryUsage mem_end = GetMemoryUsage();
-  state.counters["MemoryPeak_KB"] = mem_end.peak_rss_kb;
-  state.counters["FieldDegree"] = m;
-}
-
-static void BM_Givaro_GF2X_Field_Construction_Medium(benchmark::State &state) {
-  uint8_t m = static_cast<uint8_t>(state.range(0));
-
-  for (auto _ : state) {
-    GFq<int64_t> field(2, m);
-    benchmark::DoNotOptimize(field);
-  }
-
-  MemoryUsage mem_end = GetMemoryUsage();
-  state.counters["MemoryPeak_KB"] = mem_end.peak_rss_kb;
-  state.counters["FieldDegree"] = m;
-}
-
-static void BM_Givaro_GF2X_Field_Construction_Large(benchmark::State &state) {
-  uint8_t m = static_cast<uint8_t>(state.range(0));
-
-  for (auto _ : state) {
-    GFq<int64_t> field(2, m);
-    benchmark::DoNotOptimize(field);
-  }
-
-  MemoryUsage mem_end = GetMemoryUsage();
-  state.counters["MemoryPeak_KB"] = mem_end.peak_rss_kb;
-  state.counters["FieldDegree"] = m;
+  state.counters["FieldOrder"] = field.Order();
 }
 
 //------------------------------------------------------------------------------
 // Benchmark Registration
 //------------------------------------------------------------------------------
 
-// Small field benchmarks
-BENCHMARK(BM_Givaro_GF2X_Small_Addition)
-    ->DenseRange(2, 8, 1)
-    ->Unit(benchmark::kNanosecond);
-BENCHMARK(BM_Givaro_GF2X_Small_Multiplication)
-    ->DenseRange(2, 8, 1)
-    ->Unit(benchmark::kNanosecond);
-BENCHMARK(BM_Givaro_GF2X_Small_Division)
-    ->DenseRange(2, 8, 1)
-    ->Unit(benchmark::kNanosecond);
-BENCHMARK(BM_Givaro_GF2X_Small_Inversion)
-    ->DenseRange(2, 8, 1)
+// Register benchmarks for all field sizes {4,8,12,16,20}
+BENCHMARK(BM_Givaro_Addition)
+    ->Arg(4)->Arg(8)->Arg(12)->Arg(16)->Arg(20)
     ->Unit(benchmark::kNanosecond);
 
-// Medium field benchmarks
-BENCHMARK(BM_Givaro_GF2X_Medium_Addition)
-    ->DenseRange(9, 16, 1)
-    ->Unit(benchmark::kNanosecond);
-BENCHMARK(BM_Givaro_GF2X_Medium_Multiplication)
-    ->DenseRange(9, 16, 1)
-    ->Unit(benchmark::kNanosecond);
-BENCHMARK(BM_Givaro_GF2X_Medium_Division)
-    ->DenseRange(9, 16, 1)
-    ->Unit(benchmark::kNanosecond);
-BENCHMARK(BM_Givaro_GF2X_Medium_Inversion)
-    ->DenseRange(9, 16, 1)
+BENCHMARK(BM_Givaro_Multiplication)
+    ->Arg(4)->Arg(8)->Arg(12)->Arg(16)->Arg(20)
     ->Unit(benchmark::kNanosecond);
 
-// Large field benchmarks
-BENCHMARK(BM_Givaro_GF2X_Large_Addition)
-    ->DenseRange(17, 20, 1)
-    ->Unit(benchmark::kNanosecond);
-BENCHMARK(BM_Givaro_GF2X_Large_Multiplication)
-    ->DenseRange(17, 20, 1)
-    ->Unit(benchmark::kNanosecond);
-BENCHMARK(BM_Givaro_GF2X_Large_Division)
-    ->DenseRange(17, 20, 1)
-    ->Unit(benchmark::kNanosecond);
-BENCHMARK(BM_Givaro_GF2X_Large_Inversion)
-    ->DenseRange(17, 20, 1)
+BENCHMARK(BM_Givaro_Division)
+    ->Arg(4)->Arg(8)->Arg(12)->Arg(16)->Arg(20)
     ->Unit(benchmark::kNanosecond);
 
-// Field construction benchmarks
-BENCHMARK(BM_Givaro_GF2X_Field_Construction_Small)
-    ->DenseRange(2, 8, 1)
+BENCHMARK(BM_Givaro_Inversion)
+    ->Arg(4)->Arg(8)->Arg(12)->Arg(16)->Arg(20)
     ->Unit(benchmark::kNanosecond);
-BENCHMARK(BM_Givaro_GF2X_Field_Construction_Medium)
-    ->DenseRange(9, 16, 1)
+
+BENCHMARK(BM_Xgalois_Addition)
+    ->Arg(4)->Arg(8)->Arg(12)->Arg(16)->Arg(20)
     ->Unit(benchmark::kNanosecond);
-BENCHMARK(BM_Givaro_GF2X_Field_Construction_Large)
-    ->DenseRange(17, 20, 1)
+
+BENCHMARK(BM_Xgalois_Multiplication)
+    ->Arg(4)->Arg(8)->Arg(12)->Arg(16)->Arg(20)
+    ->Unit(benchmark::kNanosecond);
+
+BENCHMARK(BM_Xgalois_Division)
+    ->Arg(4)->Arg(8)->Arg(12)->Arg(16)->Arg(20)
+    ->Unit(benchmark::kNanosecond);
+
+BENCHMARK(BM_Xgalois_Inversion)
+    ->Arg(4)->Arg(8)->Arg(12)->Arg(16)->Arg(20)
     ->Unit(benchmark::kNanosecond);
 
 BENCHMARK_MAIN();
