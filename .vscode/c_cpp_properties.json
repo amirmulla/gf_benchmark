@@ -5,6 +5,7 @@
             "name": "Mac",
             "includePath": [
                 "${workspaceFolder}/**",
+                "/Users/amirmulla/xgalois",
                 "/opt/homebrew/Cellar/givaro/*/include",
                 "/opt/homebrew/opt/gmp/include",
                 "/opt/homebrew/include",
@@ -18,11 +19,12 @@
             ],
             "compilerPath": "/usr/bin/clang++",
             "cStandard": "c17",
-            "cppStandard": "c++11",
+            "cppStandard": "c++17",
             "intelliSenseMode": "macos-clang-arm64",
             "compilerArgs": [
-                "-std=c++11",
+                "-std=c++17",
                 "-I/opt/homebrew/include",
+                "-I/Users/amirmulla/xgalois",
                 "-I/${workspaceFolder}",
                 "-L/opt/homebrew/lib",
                 "-lgivaro",
