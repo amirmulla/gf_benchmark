@@ -93,6 +93,7 @@ build_benchmark() {
         -DNDEBUG \
         -I/opt/homebrew/include \
         -I/Users/amirmulla/Desktop/gf_benchmark \
+        -I/Users/amirmulla/xgalois \
         -L/opt/homebrew/lib \
         binary_extension_benchmark.cpp \
         -o binary_extension_benchmark \
@@ -222,7 +223,7 @@ TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
 # Set output file based on format
 if [ "$OUTPUT_FORMAT" != "console" ]; then
-    OUTPUT_FILE="$RESULTS_DIR/givaro_benchmark_${TIMESTAMP}.$OUTPUT_FORMAT"
+    OUTPUT_FILE="$RESULTS_DIR/benchmark_${TIMESTAMP}.$OUTPUT_FORMAT"
 else
     OUTPUT_FILE=""
 fi
